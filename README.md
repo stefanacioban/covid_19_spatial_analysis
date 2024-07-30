@@ -6,6 +6,8 @@ Spatial analyses related to Covid-19 have been so far conducted at county, regio
 
 Check out the output of this analysis in the [ro_incidence_rates_spatial_analysis](blob/main/ro_incidence_rates_spatial_analysis.ipynb) notebook.
 
+### :two: Exploring the Spatial Clustering and Spillover Effects of COVID-19 Vaccination Uptake in Romania: An Analysis at Municipality Level
+Abstract and results to be published upon publication of the article.
 
 ## Licence
 If you would like to use these results or any of the visualizations or data presented, you are free to do so under an [MIT license](blob/main/LICENSE). 
