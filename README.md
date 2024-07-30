@@ -9,6 +9,9 @@ Check out the output of this analysis in the [ro_incidence_rates_spatial_analysi
 ### :two: Exploring the Spatial Clustering and Spillover Effects of COVID-19 Vaccination Uptake in Romania: An Analysis at Municipality Level
 Abstract and results to be published upon publication of the article.
 
+### :three: Evaluation of the space-time effects of Covid-19 on household loans and savings in Romania - A spatial panel data approach at county level 
+Abstract and results to be published upon publication of the article.
+
 ## Licence
 If you would like to use these results or any of the visualizations or data presented, you are free to do so under an [MIT license](blob/main/LICENSE). 
 
