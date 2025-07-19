@@ -12,11 +12,11 @@ Check out the output of this analysis in the [TBA](blob/main/TBA) notebook.
 
 ### :three: Exploring the Spatial Clustering and Spillover Effects of COVID-19 Vaccination Uptake in Romania: An Analysis at Municipality Level  
 "This article examines the effects of the Covid-19 crisis on the banking sector of Romania using a spatial panel dataset of 21 months, from April 2020 to December 2021, among 41 counties. The empirical setup exploits the spatial and time-series variations of the banking sector during the pandemic via means of exploratory data analysis, simple linear models for each month with spatial diagnosis, and spatial panel data models with fixed effects. County-level differences and particular disturbances in the trend of banking services are highlighted against the turning points of the pandemic. We show that increasing Covid-19 infections result in higher loans and savings per capita, with significant spatial interactions given by the neighboring counties."  
-Check out the output of this analysis in the [exploring_spatial_clustering_and_spillovers](blob/main/exploring_spatial_clustering_and_spillovers.Rmd) notebook.  
+Check out the output of this analysis in the [exploring_spatial_clustering_and_spillovers](blob/main/exploring_spatial_clustering_and_spillovers.Rmd) R markdown file.  
 
 ### :four: Evaluation of the space-time effects of Covid-19 on household loans and savings in Romania-A spatial panel data approach at county level  
 "This article examines the effects of the Covid-19 crisis on the banking sector of Romania using a spatial panel dataset of 21 months, from April 2020 to December 2021, among 41 counties. The empirical setup exploits the spatial and time-series variations of the banking sector during the pandemic via means of exploratory data analysis, simple linear models for each month with spatial diagnosis, and spatial panel data models with fixed effects. County-level differences and particular disturbances in the trend of banking services are highlighted against the turning points of the pandemic. We show that increasing Covid-19 infections result in higher loan and saving per capita, with significant spatial interactions given by the neighboring counties."  
-Check out the output of this analysis in the [TBA](blob/main/TBA) notebook.  
+Check out the output of this analysis in the [evaluation_of_space_time_effects](blob/main/evaluation_of_space_time_effects.Rmd) R markdown file.  
 
 ## Licence  
 If you would like to use these results or any of the visualizations or data presented, you are free to do so under an [MIT license](blob/main/LICENSE). 

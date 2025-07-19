@@ -1,0 +1,218 @@
+---
+title: "Evaluation of the space-time effects of Covid-19 on household loans and savings in Romania-A spatial panel data approach at county level "
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+# Setup and dataset creation
+Import libraries. 
+
+```{r}
+library(sp)
+library(plm)
+library(splm)
+library(spdep) #useful to turn a W matrix into a list w matrix
+library(texreg)
+library(spatialreg)
+library(spData)
+library(spdep)
+library(lmtest)
+library(texreg)
+```
+Read the dataset (non-spatial one):
+```{r}
+ro_savings_incidence <- read.csv(file = 'data/ro_incidence_loans_savings_41_counties.csv')
+head(ro_savings_incidence)
+```
+
+Turn off scientific notations for reasonably sized values:
+```{r}
+options(scipen=7)
+```
+
+Read the row-standardized W (queen of order 1) matrix
+```{r}
+w_queen <- read.gal("data/queen_1ord_symmetric_41_counties.gal")
+w_queen <- nb2listw(w_queen, style='W')
+summary(w_queen)
+```
+# Descriptives
+Get summary statistics:
+```{r}
+summary(ro_savings_incidence)
+```
+Check for zeroes
+```{r}
+colSums(ro_savings_incidence==0)
+```
+# Spatial dependence 
+Compute pooled Moran's I tests for all the variables:
+```{r}
+pool.lw <- mat2listw(kronecker(listw2mat(w_queen), diag(1, 21)))
+columns <- list(ro_savings_incidence$cred_r, ro_savings_incidence$saving_r, ro_savings_incidence$covid_r)
+
+for(column in columns) {
+  moran <- moran.test(column, listw=pool.lw)
+  print(paste(moran$estimate[1], moran$statistic, moran$p.value))
+}
+```
+Pooled Moran I test value for the Covid-19 rate is significant.
+
+# Spatial models
+## Covid incidence versus savings
+```{r}
+ro_savings_incidence <- ro_savings_incidence[order(ro_savings_incidence$date, ro_savings_incidence$county_code), ]
+head(ro_savings_incidence)
+```
+Formula declaration
+```{r}
+fm<-saving_r~covid_r
+```
+
+Pooled OLS, FE, XS, FE&XS
+```{r}
+femod <- plm(fm, ro_savings_incidence, effect="individual", model = 'within')
+poolmod <- plm(fm, ro_savings_incidence, model="pooling")
+tfemod <- plm(fm, ro_savings_incidence, effect="time")
+fe2mod <- plm(fm, ro_savings_incidence, effect="twoways")
+screenreg(list('Pooled OLS' = poolmod, 'X-sect FE' = femod, 'Time FE' = tfemod, 'X-sect&Time FE' = fe2mod))
+```
+LM tests on the residuals
+Elhorst: Start with a general model and get to more specific models, then compute the log-likelihood test LM (Lagrange Multiplier) or the Moran test on the residuals. This is referred by the term: nested models, the most general being the Manski Model (usually not recommended):  
+$y=\rho Wy+X\beta+WX\theta+u$, $u=\lambda Wu+\epsilon$  
+with its simplified forms:  
+1. when $\theta=0$ Kelejan-Prucha, SARAR, SAC, Cliff-Ord model, when $y=\rho$ SER, when $\lambda=0$ Spatial Lag, Lag Y, SAR model, and further simplified to OLS  
+2. when $\lambda=0$ Spatial Durbin Model model, when $\rho=0$ Spatially Lagged X (SLX), when $\theta=0$ Spatial Lag, Lag Y, SAR model, $\theta=-\rho\beta$ SEM model, and further simplified to OLS  
+3. when $\rho=0$ Spatial Durbin Error Model, when $\theta=0$ SEM model, when $\lambda=0$ SLX, and further simplified to OLS
+LeSage (2014) encourages to start with SDM (for global relationships -has the lagged Y- in your model: if sth happens in one region, the impact will spillover to every region in the dataset because of the spatially lagged Y, as it will allow the propagation of that event in every region even not in the neghborhood) or SDEM (for local relationships).
+```{r}
+models <- list(poolmod, femod, tfemod, fe2mod)
+tests <- c('lml', 'lme', 'rlml', 'rlme')
+local.rob.LM <- matrix(ncol=length(models), nrow=4)
+dimnames(local.rob.LM) <- list(tests, c('Pooled OLS', 'X-sect FE', 'Time FE', 'X-sect&Time FE'))
+for(j in 1:length(models)) {
+  for(i in 1:length(tests)) {
+    local.rob.LM[i, j] <- paste(round(slmtest(models[[j]], listw=w_queen, test=tests[i])$statistic, 2), round(slmtest(models[[j]], listw=w_queen, test=tests[i])$p.value, 3))
+  }
+}
+local.rob.LM
+```
+Autocorrelation tests on the residuals
+```{r}
+models <- list(poolmod, femod, tfemod, fe2mod)
+print('Moran I on the residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model), listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+print('Moran I on the squared residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model)^2, listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+```
+As we are working with a decently long panel - 21 months, we can use a variable coefficients model of the loans rate: y_{it} = a_i + b_i + x_{it} also called as mean group estimator: separate OLS time series regressions -> gives a population density of individual coefficients (average), in this case the 41 counties in Romania. Comes with very good properties on non-stationary panels
+This estimator did 41 individual regressions found the betas and then did the average
+
+Create panel
+```{r}
+dim(ro_savings_incidence)
+p_ro_savings_incidence <- pdata.frame(ro_savings_incidence)
+```
+Compute lagged variables
+```{r}
+p_ro_savings_incidence$w_covid <- slag(p_ro_savings_incidence$covid_r, listw=w_queen)
+pdim(p_ro_savings_incidence)
+```
+SDM, SDEM, GNS
+```{r}
+sdm <- spml(saving_r ~ covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=TRUE, spatial.error='n')
+sdem <- spml(saving_r ~ covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=FALSE, spatial.error='b')
+gns <-spml(saving_r ~ covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=TRUE, spatial.error='b')
+# Dynamic spatial Durbin model with fixed effects and common factors - doesn't work and it should not be trusted anyway, dynamic cf augmentation is very recent research - is not consistent unless you add some lag on the cross-sectional averages
+# dsdm <- spml(saving_r ~ lag(saving_r) + covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=TRUE, spatial.error='n') # don't trust the dynamic estimator in splm because it might not give the exact result
+# dsdem2 <- spml(saving_r ~ lag(saving_r) + covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=FALSE, spatial.error='b')
+summary(sdm)
+summary(sdem)
+summary(gns)
+```
+Autocorrelation tests on the residuals
+```{r}
+models <- list(sdm, sdem, gns)
+print('Moran I on the residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model), listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+print('Moran I on the squared residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model)^2, listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+```
+## Covid incidence versus loans
+Formula declaration
+```{r}
+fm<-cred_r~covid_r
+```
+
+Pooled OLS, FE, XS, FE&XS
+```{r}
+femod <- plm(fm, ro_savings_incidence, effect="individual", model = 'within')
+poolmod <- plm(fm, ro_savings_incidence, model="pooling")
+tfemod <- plm(fm, ro_savings_incidence, effect="time")
+fe2mod <- plm(fm, ro_savings_incidence, effect="twoways")
+screenreg(list('Pooled OLS' = poolmod, 'X-sect FE' = femod, 'Time FE' = tfemod, 'X-sect&Time FE' = fe2mod))
+```
+LM tests on the residuals
+```{r}
+models <- list(poolmod, femod, tfemod, fe2mod)
+tests <- c('lml', 'lme', 'rlml', 'rlme')
+local.rob.LM <- matrix(ncol=length(models), nrow=4)
+dimnames(local.rob.LM) <- list(tests, c('Pooled OLS', 'X-sect FE', 'Time FE', 'X-sect&Time FE'))
+for(j in 1:length(models)) {
+  for(i in 1:length(tests)) {
+    local.rob.LM[i, j] <- paste(round(slmtest(models[[j]], listw=w_queen, test=tests[i])$statistic, 2), round(slmtest(models[[j]], listw=w_queen, test=tests[i])$p.value, 3))
+  }
+}
+local.rob.LM
+```
+Autocorrelation tests on the residuals
+```{r}
+models <- list(poolmod, femod, tfemod, fe2mod)
+print('Moran I on the residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model), listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+print('Moran I on the squared residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model)^2, listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+```
+SDM, SDEM, GNS
+```{r}
+sdm <- spml(cred_r ~ covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=TRUE, spatial.error='n')
+sdem <- spml(cred_r ~ covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=FALSE, spatial.error='b')
+gns <-spml(cred_r ~ covid_r + w_covid, data=p_ro_savings_incidence, listw=w_queen, model='within', effect='twoways', lag=TRUE, spatial.error='b')
+summary(sdm)
+summary(sdem)
+summary(gns)
+```
+Autocorrelation tests on the residuals
+```{r}
+models <- list(sdm, sdem, gns)
+print('Moran I on the residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model), listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+print('Moran I on the squared residuals')
+for(model in models) {
+  moran <- moran.test(residuals(model)^2, listw=mat2listw(kronecker(diag(1, 21), listw2mat(w_queen))))
+  print(paste(round(moran$estimate[1], 3), round(moran$statistic, 3), round(moran$p.value, 3)))
+}
+```
