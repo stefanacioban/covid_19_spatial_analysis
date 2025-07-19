@@ -1,0 +1,322 @@
+---
+title: "Exploring the Spatial Clustering and Spillover Effects of COVID-19 Vaccination Uptake in Romania: An Analysis at Municipality Level"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+## Setup
+Import libraries. 
+
+```{r}
+library(sp)
+library(rgdal)
+library(broom)
+library(rgeos)
+library(splm)
+library(spdep) #useful to turn a W matrix into a list w matrix
+library(texreg)
+library(pder)
+library(spatialreg)
+library(spData)
+library(ggplot2)
+library(zeallot)
+library(olsrr)
+```
+Read the dataset (non-spatial one):
+```{r}
+ro_Vaccines_incidence_socioec <- read.csv(file = 'data/ro_Vaccines_incidence_socioec.csv')
+head(ro_Vaccines_incidence_socioec)
+```
+Rename columns:
+```{r}
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[1]] <- 'empl'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[2]] <- 'living_spa'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[3]] <- 'vote'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[4]] <- 'airp'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[5]] <- 'prim_edu'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[6]] <- 'elder'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[7]] <- 'pover'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[8]] <- 'neoprot'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[9]] <- 'migr_exp'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[10]] <- 'cov_max'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[11]] <- 'core_c'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[12]] <- 'per_c'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[13]] <- 'per_v'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[14]] <- 'size'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[15]] <- 'sch_enrol'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[16]] <- 'vaccR_Oct'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[18]] <- 'vaccR_May'
+```
+
+```{r}
+head(ro_Vaccines_incidence_socioec)
+```
+Standardize using z-score all variables except the dummy ones:
+```{r}
+ro_Vaccines_incidence_socioec_std <-  as.data.frame(scale(ro_Vaccines_incidence_socioec, center = TRUE, scale = TRUE))
+ro_Vaccines_incidence_socioec_std$siruta <- ro_Vaccines_incidence_socioec$siruta
+ro_Vaccines_incidence_socioec_std$core_c <- ro_Vaccines_incidence_socioec$core_c
+ro_Vaccines_incidence_socioec_std$per_c <- ro_Vaccines_incidence_socioec$per_c
+ro_Vaccines_incidence_socioec_std$per_v <- ro_Vaccines_incidence_socioec$per_v
+ro_Vaccines_incidence_socioec_std$airp <- ro_Vaccines_incidence_socioec$airp
+ro_Vaccines_incidence_socioec_std$size <- ro_Vaccines_incidence_socioec$size
+
+head(ro_Vaccines_incidence_socioec_std)
+```
+Read the shapefile with the polygons for each TAU and construct the spatial weights matrix.
+```{r}
+ro_atu <- readOGR('data/ro_atu.shp')
+coordinates <- coordinates(ro_atu)
+ro_atu
+```
+```{r}
+head(ro_Vaccines_incidence_socioec_std$siruta)==head(ro_atu) #You'll notice that I have arranged both the input data file and the shapefile according to the siruta codes
+```
+## Analyze and create spatial weights matrices
+### Queen
+```{r}
+# create the row-standardized W matrix
+queen <- poly2nb(ro_atu, queen=TRUE)
+summary(queen) # same as what you would compute in Geoda for queen order 1 (no row standardization)
+```
+```{r}
+str(queen[1:5]) #visualize the first 5 entries
+queen[[3]] #calling one vector from the nb matrix
+length(queen[[3]])
+queen[[3]][4] #first element of the vector
+```
+```{r}
+w_queen <- nb2listw(queen, style='W') # outputs a row-standardized list matrix 'W' - not doing so, it will yield errors like 'w_queen is not a listw object'
+summary(w_queen)
+```
+Alternatively, the spatial weights matrix can be computed in geoda and used here:
+```{r}
+w_queen <- read.gal("data/queen_1ord_symmetric.gal")  # same as above but computed in Geoda for queen order 1 (no row standardization)
+w_queen <- nb2listw(w_queen, style='W')
+summary(w_queen)
+```
+Yields the same results in the spatial modeling phase.  
+## Spatial model selection
+```{r}
+regr_fm_may <- vaccR_May~pover+elder+prim_edu+empl+migr_exp+vote+neoprot+living_spa+airp+cov_max+size+core_c+per_c+per_v
+olsmod_may <- lm(regr_fm_may, ro_Vaccines_incidence_socioec_std) # simple OLS model
+summary(olsmod_may)
+```
+Compute the Moran index for the OLS residuals
+```{r}
+lm.morantest(olsmod_may, w_queen)
+```
+```{r}
+ols_test_breusch_pagan(olsmod_may, rhs=TRUE, multiple=TRUE)
+```
+```{r}
+ols_test_normality(olsmod_may)
+```
+```{r}
+ols_test_correlation(olsmod_may)
+```
+Compute the spatial diagnosis to see which spatial effect to take into consideration:
+*LMlag:* test for spatial lag assuming there is no spatial error (uses the residuals of the ols)
+*LMerr:* tests for the spatial error assuming there is no spatial lag (uses the residuals of the ols)
+The robust tests (introduced in '93 by Anil Bera, is robust up to one point) are actually locally robust (looking for a moderate level of spatial dependence), they are based on accounting for non-gigantic deviations from the null effect.
+*RLMlag:* tests for the spatial lag with respect to the spatial error (uses the residuals of the spatial error model)
+*RLMerr:* tests for the spatial error with respect to the spatial lag (uses the residuals of the spatial lag model)
+Anselin would suggest to pick the model that has a lower p value
+```{r}
+lm.LMtests(olsmod_may, w_queen, test='all')
+```
+The values of the tests non-robust form were strongly affected by the presence of the other effect (high values), while in the robust form the values are low.     
+CONCLUSION: *The most appropriate direction in which to look for spatial effects would be the spatial error in combination with a spatial lag.*  
+Let's compute the SLX model (spatially lagged Xs)  
+$y=X\beta+WX\theta+\epsilon$  
+
+```{r}
+slxmod_may <- lmSLX(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen)
+summary(slxmod_may)
+```
+The sLX model gives two sets of slopes, one for the own(direct) effects and one for the neighbor(indirect) effects. By simply adding them, you can get the total marginal effects.  
+So far, the lagged coefficients are representative for the indirect effects while the regular ones are for the direct effects. To compute the marginal effects, direct, indirect and total (to also account for the significance of the results):   
+```{r}
+summary(impacts(slxmod_may, listw=w_queen), zstats=TRUE)
+```
+Let's compute the SAR model (spatial lag model or global spatial model)  
+$y=\rho Wy+X\beta+\epsilon$  
+```{r}
+sarmod_may <- lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen)
+summary(sarmod_may)
+```
+Rho is the spatial lag parameter (of the dependent variable) and it tells us to what degree the neighbor values of y affect the own values of y. The slope estimates (values of the coefficients) are not relevant for interpretation in this case, because of the global feedback effect given by the spatial lag of the dependent variable. Rather look at the marginal effects:  
+```{r}
+summary(impacts(sarmod_may, listw=w_queen, R=999), zstats=TRUE) #R is for permutations
+```
+Let's compute the SER model (spatial error model)  
+$y=X\beta+u$, $u=\lambda Wu+\epsilon$  
+```{r}
+sermod_may <- errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen)
+summary(sermod_may)
+```
+The lambda parameter tells us if there is a stochastic shock in the neighbors how does it affect the value of our stochastic error term.  
+In this case, the coefficients can be interpreted as marginal effects. The significant lambda tells us that the residuals are non-random (a form of spatial heteroskedasticity or spatial autocorrelation).  
+  
+The spatial Hausman test - looks and compares the parameters estimates of two models: OLS and SEM - sets the structure of spatial noise in the residual term == a form of spatial heteroskedasticity or spatial autocorrelation (classical:  see if I leave out the fixed effects parameters does it biases the coefficient estimates). The test says that the parameter estimates should not be too different, if they are (significant difference between the parameter estimates of the two models), neither of the two models is correct -> as we do have some spatial dependence and the SEM is not the correct model to capture the spatial results.  
+```{r}
+Hausman.test(sermod_may)
+```
+The test tells us that neither the OLS nor the SEM is the right model to capture these coefficients. Another model should be explored. 
+  
+Elhorst: Start with a general model and get to more specific models, then compute the log-likelihood test LM (Lagrange Multiplier) or the Moran test on the residuals. This is referred by the term: nested models, the most general being the Manski Model (usually not recommended):  
+$y=\rho Wy+X\beta+WX\theta+u$, $u=\lambda Wu+\epsilon$    
+with its simplified forms:  
+1. when $\theta=0$ Kelejan-Prucha, SARAR, SAC, Cliff-Ord model, when $y=\rho$ SER, when $\lambda=0$ Spatial Lag, Lag Y, SAR model, and further simplified to OLS  
+2. when $\lambda=0$ Spatial Durbin Model model, when $\rho=0$ Spatially Lagged X (SLX), when $\theta=0$ Spatial Lag, Lag Y, SAR model, $\theta=-\rho\beta$ SEM model, and further simplified to OLS  
+3. when $\rho=0$ Spatial Durbin Error Model, when $\theta=0$ SEM model, when $\lambda=0$ SLX, and further simplified to OLS  
+LeSage (2014) encourages to start with SDM (for global relationships -has the lagged Y- in your model: if sth happens in one region, the impact will spillover to every region in the dataset because of the spatially lagged Y, as it will allow the propagation of that event in every region even not in the neghborhood) or SDEM (for local relationships).  
+  
+The Manski model:  
+```{r}
+manmod_may=sacsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen, type="sacmixed") # a different weights matrix can be specified for the error structure if desired, using the {listw2=,} parameter
+summary(manmod_may)
+```
+Tidy coefficients and automatically write a csv file with them:  
+```{r}
+tidy_manmod_may <- tidy(manmod_may)
+tidy_manmod_may 
+#write.csv(tidy_manmod_may, "tidy_manmod_may.csv")
+```
+The SARAR model(Kelejan-Prucha Model, Cliff-Ord or SAC Model):  
+$y=\rho Wy+X\beta+u$, $u=\lambda Wu+\epsilon$  
+```{r}
+sararmod_may=sacsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen, type="sac")
+summary(sararmod_may)
+```
+As per Anselin's LM tests, the SARAR model should be computed as well. However, the model cannot be (yet) computed in R, nor does Anselin advise starting with this model. Best is to just include the test for SARMA for completeness.  
+  
+Using the same W matrix for lag and error terms can lead to identification problems. Probably best to avoid these models. HOWEVER, sometimes people mention a SARMA(p,q), allowing for $\rho$ different $\rho Wy$ matrices, and q different  $\theta W\epsilon$ terms likewise (normally W’s of different orders)  
+  
+The SDEM (Spatial Error Durbin Model->adds lag X to SEM):  
+$y=X\beta +WX\theta +u$, $u=\lambda Wu+\epsilon$  
+```{r}
+sdemmod_may = errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen, etype='emixed')
+summary(sdemmod_may)
+```
+```{r}
+#lm.morantest(sdemmod_may, w_queen)
+```
+
+Lambda is the multiplier on the residuals (covers the unexplained).  
+Compute the direct and indirect effects for the SDEM model:  
+```{r}
+summary(impacts(sdemmod_may, listw=w_queen, R=999), zstats=TRUE) #R is for permutations
+```
+The total effect is different than the simple sum of indirect and direct effects in this case (contrasting with what happens in the SLX model), as it also includes the error lag structure.  
+The SDM (Spatial Durbin Model <- adds lag X to SAR):  
+$y=\rho Wy+X\beta+WX\theta+\epsilon$  
+```{r}
+sdmmod_may = lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen, type='mixed')
+summary(sdmmod_may)
+```
+```{r}
+summary(impacts(sdmmod_may, listw=w_queen, R=999), zstats=TRUE) #R is for permutations
+```
+Compute the likelihood ratio test (only tests restriction to a simpler, more restricted, nested model) to see if SDEM should be restricted to the SEM(drop the lagged Xs) or to a SLX(drop the lagged error). Ho:restrictions are true==we should restrict the model to something simpler. SDM and SDEM are not nested, as one cannot be simplified into the other.  
+```{r}
+LR.Sarlm(sdemmod_may, sermod_may) # order of models is not important
+LR.Sarlm(sdemmod_may, slxmod_may)
+```
+
+
+The df (degrees of freedom) suggest how many things we're restricting, in this case 14 WXs. The null hypothesis is rejected here, the model shouldn't be restriced to SEM.  
+One df as there is just the spatially lagged error which is restricted (=0). Again, we shouldn't restrict the model to an SLX one. Therefore, we shouldn't restrict it even further to an OLS model.  
+```{r}
+LR.Sarlm(sdmmod_may, sermod_may)
+LR.Sarlm(sdmmod_may, slxmod_may)
+```
+To compare between the SDEM and SDM there are some Bayesian methods that could be used (the J test) (Kelejan 2008) -maybe not possible in R.  
+Further testing of the model includes to check whether there is heteroskedasticity-is not affecting the coefficients, but it affects the p-values and the standard errors, probably not much- in the model (using the studentized Breusch-Pagan test).  
+
+```{r}
+bptest.Sarlm(sdemmod_may, studentize=TRUE)
+```
+
+Heteroscedasticity is present as per the alternative hypothesis, meaning that the residuals are not distributed with equal variance. However, due to the extremely low p-values, it is not likely that the heteroskedasticity affects the results.  
+Another goodness of fit measure for the model is the pseudo R squared (what percentage of the variation the spatial model is predicting).  
+```{r}
+1-(sdemmod_may$SSE/(var(ro_Vaccines_incidence_socioec_std$vaccR_May)*(length(ro_Vaccines_incidence_socioec_std$vaccR_May)-1)))
+```
+
+74% of the variation of the Y variable is explained(=accounted for) by the model.  
+
+## Running the same models using other W matrices  
+Run SDEM, SEM and SLX models using:  
+
+1. the row standardized second order queen contiguity matrix
+
+```{r}
+w_queen2 <- read.gal("data/queen_2ord_symmetric.gal")
+w_queen2 <- nb2listw(w_queen2, style='W')
+lm.morantest(olsmod_may, w_queen2)
+slxmod2 <- lmSLX(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen2)
+sarmod2 <- lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen2)
+sermod2 <- errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen2)
+Hausman.test(sermod2)
+sdmmod2 = lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen2, type='mixed')
+sdemmod2 = errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_queen2, etype='emixed')
+LR.Sarlm(sdemmod2, sermod2)
+LR.Sarlm(sdemmod2, slxmod2)
+bptest.Sarlm(sdemmod2, studentize=TRUE)
+1-(sdemmod2$SSE/(var(ro_Vaccines_incidence_socioec_std$vaccR_May)*(length(ro_Vaccines_incidence_socioec_std$vaccR_May)-1)))
+```
+
+
+2. the euclidean distance based matrix with a threshold of either 25, 30 or 40 km (check the distance_25000euclid_symmetric.gal, distance_30000euclid_symmetric.gal and distance_40000euclid_symmetric.gal)  
+
+```{r}
+w_dist1 <- read.gal("data/distance_25000euclid_symmetric.gal")
+w_dist1 <- nb2listw(w_dist1, style='W')
+lm.morantest(olsmod_may, w_dist1)
+slxmod3 <- lmSLX(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist1)
+sarmod3 <- lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist1)
+sermod3 <- errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist1)
+Hausman.test(sermod3)
+sdmmod3 = lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist1, type='mixed')
+sdemmod3 = errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist1, etype='emixed')
+LR.Sarlm(sdemmod3, sermod3)
+LR.Sarlm(sdemmod3, slxmod3)
+bptest.Sarlm(sdemmod3, studentize=TRUE)
+1-(sdemmod3$SSE/(var(ro_Vaccines_incidence_socioec_std$vaccR_May)*(length(ro_Vaccines_incidence_socioec_std$vaccR_May)-1)))
+```
+
+```{r}
+w_dist2 <- read.gal("data/distance_30000euclid_symmetric.gal")
+w_dist2 <- nb2listw(w_dist2, style='W')
+lm.morantest(olsmod_may, w_dist2)
+slxmod4 <- lmSLX(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist2)
+sarmod4 <- lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist2)
+sermod4 <- errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist2)
+Hausman.test(sermod4)
+sdmmod4 = lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist2, type='mixed')
+sdemmod4 = errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist2, etype='emixed')
+LR.Sarlm(sdemmod4, sermod4)
+LR.Sarlm(sdemmod4, slxmod4)
+bptest.Sarlm(sdemmod4, studentize=TRUE)
+1-(sdemmod4$SSE/(var(ro_Vaccines_incidence_socioec_std$vaccR_May)*(length(ro_Vaccines_incidence_socioec_std$vaccR_May)-1)))
+```
+
+```{r}
+w_dist3 <- read.gal("data/distance_40000euclid_symmetric.gal")
+w_dist3 <- nb2listw(w_dist3, style='W')
+lm.morantest(olsmod_may, w_dist3)
+slxmod5 <- lmSLX(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist3)
+sarmod5 <- lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist3)
+sermod5 <- errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist3)
+Hausman.test(sermod5)
+sdmmod5 = lagsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist3, type='mixed')
+sdemmod5 = errorsarlm(regr_fm_may, ro_Vaccines_incidence_socioec_std, w_dist3, etype='emixed')
+LR.Sarlm(sdemmod5, sermod5)
+LR.Sarlm(sdemmod5, slxmod5)
+bptest.Sarlm(sdemmod5, studentize=TRUE)
+1-(sdemmod5$SSE/(var(ro_Vaccines_incidence_socioec_std$vaccR_May)*(length(ro_Vaccines_incidence_socioec_std$vaccR_May)-1)))
+```
+
