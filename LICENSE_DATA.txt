@@ -1,0 +1,14 @@
+Copyright © Stefana Belbe, 2025.
+
+The datasets provided in this repository are made available exclusively for **academic, non-commercial use**.
+
+Use of these datasets in any publication, analysis, or derivative work **requires citation** of the original article that describes the data:
+
+* Cioban, Ș., Mare, C. (2021). Spatial clustering behaviour of Covid-19 conditioned by the development level: Case study for the administrative units in Romania. Spatial Statistics, 100558. https://doi.org/10.1016/j.spasta.2021.100558
+* Petrovici, N., Belbe, Ș., Mare, C., Cotoi, C. (2023). Hybrid health regimes: Access to primary care physicians and COVID-19 vaccine uptake across municipalities in Romania. Social Science & Medicine, 337, 116305. https://doi.org/10.1016/j.socscimed.2023.116305
+* Mare, C., Belbe, Ș., & Petrovici, N. (2024). Exploring the spatial clustering and spillover effects of COVID-19 vaccination uptake in Romania: an analysis at municipality level. AStA Advances in Statistical Analysis, 1-22, https://doi.org/10.1007/s10182-024-00520-3
+* Belbe, Ș., Moldovan, D., Andrieș, A. M., Otto, P., & Mare, C. (2024). Evaluation of the space-time effects of Covid-19 on household loans and savings in Romania-A spatial panel data approach at county level. Emerging Markets Review, 63, 101209. https://doi.org/10.1016/j.ememar.2024.101209
+
+You may not modify, redistribute, or use these datasets for commercial purposes without explicit permission.
+
+For permission requests, contact: stefanacioban@gmail.com
