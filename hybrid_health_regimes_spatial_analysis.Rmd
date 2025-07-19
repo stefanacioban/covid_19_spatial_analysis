@@ -1,0 +1,416 @@
+---
+title: "Hybrid health regimes: Access to primary care physicians and COVID-19 vaccine uptake across municipalities in Romania"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document:
+    df_print: paged
+---
+# Setup
+Import libraries. 
+
+```{r}
+library(readxl) # read excel files
+library(jtools) #for robust errors
+library(sjPlot) #for tab_model
+# Model comparison
+library(performance) # model performance
+library(lmtest) #Log likelihood ratio test
+library (olsrr) #Collinearity Detection
+# Spatial Regression 
+library (sp) # dependency for rgdal
+library(spdep) # for spatial weights generation
+library (spatialreg)  # spatial regression
+library (sphet) # spatial lag and error HET
+library (car) #for VIF
+```
+Set the number of digits to 3, and scientific notation to 7
+```{r}
+options(digits=3, scipen=3)
+```
+Read the dataset (non-spatial one):
+```{r}
+ro_Vaccines_incidence_socioec <- read.csv(file = "data/ro_Vaccines_incidence_socioec_extended.csv")
+head(ro_Vaccines_incidence_socioec)
+```
+Read the dataset (spatial one, spatial weights matrix):
+```{r}
+w_queen <- read.gal("data/queen_1ord_symmetric.gal")
+w_queen <- nb2listw(w_queen, style='W')
+summary(w_queen)
+```
+Rename columns:
+```{r}
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[2]] <- 'MaxCovid'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[5]] <- 'VaccinationRateT1'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[8]] <- 'VaccinationRateT2'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[48]] <- 'FamilyDoctors'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[17]] <- 'Employees'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[53]] <- 'ElderlyRetired'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[40]] <- 'Migration'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[51]] <- 'SocialistInv'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[25]] <- 'RelativePoverty'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[52]] <- 'ElderlyMinimum'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[50]] <- 'Roma'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[31]] <- 'LivingSpace2020'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[23]] <- 'PrimaryEd4'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[39]] <- 'Neoprotestants'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[27]] <- 'VotesYES2018'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[43]] <- 'Urban'
+names(ro_Vaccines_incidence_socioec)[names(ro_Vaccines_incidence_socioec) == colnames(ro_Vaccines_incidence_socioec)[47]] <- 'Size100'
+```
+Rename dataset:
+```{r}
+spatdata <- ro_Vaccines_incidence_socioec
+head(spatdata)
+```
+# Non-spatial modelling
+Formula declarations:
+```{r}
+eq1 = VaccinationRateT1 ~ FamilyDoctors + Employees + ElderlyRetired + Migration + Size100 + SocialistInv + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020 + Neoprotestants + VotesYES2018 + MaxCovid + Urban
+eq2 = VaccinationRateT1 ~ FamilyDoctors +                            + Migration + Size100 + SocialistInv + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020 + Neoprotestants + VotesYES2018 + MaxCovid + Urban
+eq3 = VaccinationRateT2 ~ FamilyDoctors + Employees + ElderlyRetired + Migration + Size100 + SocialistInv + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020 + Neoprotestants + VotesYES2018 + MaxCovid + Urban
+eq4 = VaccinationRateT2 ~ FamilyDoctors +                            + Migration + Size100 + SocialistInv + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020 + Neoprotestants + VotesYES2018 + MaxCovid + Urban
+```
+
+```{r}
+olsT1A <- lm(eq1, data=spatdata)
+olsT1B <- lm(eq2, data=spatdata)
+olsT2A <- lm(eq3, data=spatdata)
+olsT2B <- lm(eq2, data=spatdata)
+
+summ (olsT1A, digits=3, robust=FALSE, vifs=TRUE)
+summ (olsT1B, digits=3, robust=FALSE, vifs=TRUE)
+summ (olsT2A, digits=3, robust=FALSE, vifs=TRUE)
+summ (olsT2B, digits=3, robust=FALSE, vifs=TRUE)
+```
+Fit measures
+```{r}
+compare_performance (olsT1A, olsT1B, olsT2A, olsT2B)
+logLik(olsT1A)
+logLik(olsT1B)
+logLik(olsT2A)
+logLik(olsT2B)
+lrtest (olsT1A, olsT1B, olsT2A, olsT2B) 
+```
+Breusch Pagan Test for Heteroskedasticity
+```{r}
+ols_test_breusch_pagan(olsT1A)
+ols_test_breusch_pagan(olsT1B)
+ols_test_breusch_pagan(olsT2A)
+ols_test_breusch_pagan(olsT2B)
+```
+Multicollinearity Condition Number
+```{r}
+ols_eigen_cindex(olsT1A)
+ols_eigen_cindex(olsT1B)
+ols_eigen_cindex(olsT2A)
+ols_eigen_cindex(olsT2B)
+```
+Multicollinearity VIF - Variance Influence Factor
+```{r}
+car::vif(olsT1A)
+car::vif(olsT1B)
+car::vif(olsT2A)
+car::vif(olsT2B)
+```
+Moran test for olsT1 & olsT2
+```{r}
+lm.morantest(olsT1A,w_queen)
+lm.morantest(olsT1B,w_queen)
+lm.morantest(olsT2A,w_queen)
+lm.morantest(olsT2B,w_queen)
+```
+Lagrange multiplier olsT1 & olsT2
+```{r}
+lm.LMtests(olsT1A,w_queen,test="all")
+lm.LMtests(olsT1B,w_queen,test="all")
+lm.LMtests(olsT2A,w_queen,test="all")
+lm.LMtests(olsT2B,w_queen,test="all")
+```
+# Spatial modelling
+Model estimation for SARAR-HET Durbin
+Model spatial lag specification search via simulations
+```{r}
+lagged_x_list <- c(Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  RelativePoverty +  ElderlyMinimum +  Roma,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  RelativePoverty +  ElderlyMinimum +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  RelativePoverty +  PrimaryEd4 +  Roma,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  RelativePoverty +  PrimaryEd4 +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  RelativePoverty +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  ElderlyMinimum +  PrimaryEd4 +  Roma,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  ElderlyMinimum +  PrimaryEd4 +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  ElderlyMinimum +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  Migration +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  Roma,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  RelativePoverty +  ElderlyMinimum +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  RelativePoverty +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  ElderlyRetired +  ElderlyMinimum +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  Migration +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  Roma,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  Migration +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  Migration +  RelativePoverty +  ElderlyMinimum +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  Migration +  RelativePoverty +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  Migration +  ElderlyMinimum +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Employees +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  ElderlyRetired +  Migration +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  Roma,
+                   Durbeq =  ~ FamilyDoctors +  ElderlyRetired +  Migration +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  ElderlyRetired +  Migration +  RelativePoverty +  ElderlyMinimum +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  ElderlyRetired +  Migration +  RelativePoverty +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  ElderlyRetired +  Migration +  ElderlyMinimum +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  ElderlyRetired +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors +  Migration +  RelativePoverty +  ElderlyMinimum +  PrimaryEd4 +  Roma +  LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + PrimaryEd4,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + RelativePoverty + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + ElderlyMinimum + PrimaryEd4,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + ElderlyMinimum + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + ElderlyMinimum + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + Migration + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + RelativePoverty + ElderlyMinimum + PrimaryEd4,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + RelativePoverty + ElderlyMinimum + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + RelativePoverty + ElderlyMinimum + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + RelativePoverty + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + RelativePoverty + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + RelativePoverty + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + ElderlyMinimum + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + ElderlyMinimum + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + ElderlyMinimum + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyRetired + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + RelativePoverty + ElderlyMinimum + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + RelativePoverty + ElderlyMinimum + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + RelativePoverty + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + RelativePoverty + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + RelativePoverty + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + ElderlyMinimum + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + ElderlyMinimum + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + ElderlyMinimum + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + Migration + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + Employees + RelativePoverty + ElderlyMinimum + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + RelativePoverty + ElderlyMinimum + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + RelativePoverty + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Employees + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + Roma,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + RelativePoverty + ElderlyMinimum + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + RelativePoverty + ElderlyMinimum + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + RelativePoverty + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + ElderlyRetired + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma,
+                   Durbeq =  ~ FamilyDoctors + Migration + RelativePoverty + ElderlyMinimum + PrimaryEd4 + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Migration + RelativePoverty + ElderlyMinimum + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Migration + RelativePoverty + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + Migration + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020,
+                   Durbeq =  ~ FamilyDoctors + RelativePoverty + ElderlyMinimum + PrimaryEd4 + Roma + LivingSpace2020)
+
+for (lagged_x in lagged_x_list) {
+  SararHetDurbT1A <- spreg(eq1, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=lagged_x, model = "sarar")
+  if (sign(SararHetDurbT1A$coefficients[length(SararHetDurbT1A$coefficients)])==sign(SararHetDurbT1A$coefficients[length(SararHetDurbT1A$coefficients)-1])){
+    print(lagged_x)
+  }
+}
+```
+
+Select the durbin equations from above (which do not result in a different signs in the spatial error term and spatial lag of y) and repeat previous step to get all combinations of lagged spatial variables, for a model comparison using the AIC and BIC:
+```{r}
+lagged_x_list <- c(
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty + ElderlyMinimum + Roma,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum + Roma,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + ElderlyMinimum + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + Migration + ElderlyMinimum + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + Roma + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + ElderlyMinimum + Roma + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + Migration + ElderlyMinimum + Roma + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + ElderlyMinimum,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + Roma,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + ElderlyMinimum + Roma,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + ElderlyMinimum + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Roma + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + Migration + ElderlyMinimum + Roma,
+  Durbeq =  ~ FamilyDoctors + Migration + ElderlyMinimum + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + Migration + Roma + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyMinimum + Roma + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration + LivingSpace2020, #best combiantion of spatially lagged x terms
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + ElderlyMinimum + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + Migration + ElderlyMinimum + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + Migration + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyMinimum + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Migration,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + ElderlyMinimum,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + Roma,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + Migration + Roma,
+  Durbeq =  ~ FamilyDoctors + Migration + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyMinimum + Roma,
+  Durbeq =  ~ FamilyDoctors + ElderlyMinimum + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + Roma + LivingSpace2020,
+  Durbeq =  ~ FamilyDoctors + ElderlyRetired + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + Migration + ElderlyMinimum,
+  Durbeq =  ~ FamilyDoctors + Migration + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + ElderlyMinimum + RelativePoverty,
+  Durbeq =  ~ FamilyDoctors + Roma + RelativePoverty)
+
+for (lagged_x in lagged_x_list) {
+  SararHetDurbT1A <- spreg(eq1, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=lagged_x, model = "sarar")
+  SararHetDurbT2A <- spreg(eq3, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=lagged_x, model = "sarar")
+  lagged_x_restricted <- update(lagged_x, ~. -ElderlyRetired)
+  SararHetDurbT1B <- spreg(eq2, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=lagged_x_restricted, model = "sarar")
+  SararHetDurbT2B <- spreg(eq4, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=lagged_x_restricted, model = "sarar")
+  
+  #check if lambda and rho have the same sign for all models
+
+  if (
+    as.numeric(sign(SararHetDurbT1A$coefficients[length(SararHetDurbT1A$coefficients)])==sign(SararHetDurbT1A$coefficients[length(SararHetDurbT1A$coefficients)-1]))+
+    as.numeric(sign(SararHetDurbT2A$coefficients[length(SararHetDurbT2A$coefficients)])==sign(SararHetDurbT2A$coefficients[length(SararHetDurbT2A$coefficients)-1]))==2)
+    # as.numeric(sign(SararHetDurbT1B$coefficients[length(SararHetDurbT1B$coefficients)])==sign(SararHetDurbT1B$coefficients[length(SararHetDurbT1B$coefficients)-1])) +
+    # as.numeric(sign(SararHetDurbT2B$coefficients[length(SararHetDurbT2B$coefficients)])==sign(SararHetDurbT2B$coefficients[length(SararHetDurbT2B$coefficients)-1]))==4)
+    {
+    print(lagged_x)
+    residuals_SararHetDurbT1A <- residuals(SararHetDurbT1A) # Compute the residuals
+    sige2_SararHetDurbT1A <- sum(residuals_SararHetDurbT1A^2) / length(residuals_SararHetDurbT1A) # Estimate the residual variance
+    loglik_SararHetDurbT1A <- sum(dnorm(residuals_SararHetDurbT1A, mean = 0, sd = sqrt(sige2_SararHetDurbT1A))) # Compute the log-likelihood
+    num_params_SararHetDurbT1A <- length(coef(SararHetDurbT1A)) # Calculate the number of parameters in the model
+    n <- length(residuals_SararHetDurbT1A)
+    aic_SararHetDurbT1A <- -2 * loglik_SararHetDurbT1A + 2 * num_params_SararHetDurbT1A # Compute AIC
+    bic_SararHetDurbT1A <- -2 * loglik_SararHetDurbT1A + num_params_SararHetDurbT1A * log(n) # Compute BIC
+    print('#MODEL 1#')
+    print(paste0("AIC: ", aic_SararHetDurbT1A)) # Print AIC
+    print(paste0("BIC: ", bic_SararHetDurbT1A))  # Print BIC
+    
+    residuals_SararHetDurbT2A <- residuals(SararHetDurbT2A) # Compute the residuals
+    sige2_SararHetDurbT2A <- sum(residuals_SararHetDurbT2A^2) / length(residuals_SararHetDurbT2A) # Estimate the residual variance
+    loglik_SararHetDurbT2A <- sum(dnorm(residuals_SararHetDurbT2A, mean = 0, sd = sqrt(sige2_SararHetDurbT2A))) # Compute the log-likelihood
+    num_params_SararHetDurbT2A <- length(coef(SararHetDurbT2A)) # Calculate the number of parameters in the model
+    n <- length(residuals_SararHetDurbT2A)
+    aic_SararHetDurbT2A <- -2 * loglik_SararHetDurbT2A + 2 * num_params_SararHetDurbT2A # Compute AIC
+    bic_SararHetDurbT2A <- -2 * loglik_SararHetDurbT2A + num_params_SararHetDurbT2A * log(n) # Compute BIC
+    print('#MODEL 3#')
+    print(paste0("AIC: ", aic_SararHetDurbT2A)) # Print AIC
+    print(paste0("BIC: ", bic_SararHetDurbT2A))  # Print BIC
+  }
+}
+```
+
+
+```{r}
+Durbeq =~FamilyDoctors + ElderlyRetired + Employees + Size100
+Durbeq_restricted <- update(Durbeq, ~. -ElderlyRetired-Employees)
+# Models-
+SararHetDurbT1A <- spreg(eq1, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=Durbeq, model = "sarar")
+SararHetDurbT1B <- spreg(eq2, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=Durbeq_restricted, model = "sarar")
+SararHetDurbT2A <- spreg(eq3, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=Durbeq, model = "sarar")
+SararHetDurbT2B <- spreg(eq4, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=Durbeq_restricted, model = "sarar")
+
+# Restricted models other tests
+
+Durbeq_restricted =~FamilyDoctors
+
+eq2 = VaccinationRateT1 ~ FamilyDoctors + Migration + SocialistInv + Employees
+eq4 = VaccinationRateT2 ~ FamilyDoctors + Migration + SocialistInv + Employees
+
+SararHetDurbT1B <- spreg(eq2, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=Durbeq_restricted, model = "sarar")
+SararHetDurbT2B <- spreg(eq4, data=spatdata, listw = w_queen, het = TRUE, verbose = FALSE, Durbin=Durbeq_restricted, model = "sarar")
+
+summary(SararHetDurbT1B)
+summary(SararHetDurbT2B)
+```
+
+
+```{r}
+effects_SararHetDurbT1A <- sphet::impacts(SararHetDurbT1A, listw = w_queen, R=399)
+summary(effects_SararHetDurbT1A, zstats=TRUE)
+effects_SararHetDurbT1B <- sphet::impacts(SararHetDurbT1B, listw = w_queen, R=399)
+summary(effects_SararHetDurbT1B, zstats=TRUE)
+effects_SararHetDurbT2A <- sphet::impacts(SararHetDurbT2A, listw = w_queen, R=399)
+summary(effects_SararHetDurbT2A, zstats=TRUE)
+effects_SararHetDurbT2B <- sphet::impacts(SararHetDurbT2B, listw = w_queen, R=399)
+summary(effects_SararHetDurbT2B, zstats=TRUE)
+```
+
+
+```{r}
+SararHetDurbT1A$SSE/(var(spatdata$VaccinationRateT1)*(length(spatdata$VaccinationRateT1)-1))
+```
+
+
+```{r}
+# AIC and BIC for models SararHetDurbT1A
+residuals_SararHetDurbT1A <- residuals(SararHetDurbT1A) # Compute the residuals
+sige2_SararHetDurbT1A <- sum(residuals_SararHetDurbT1A^2) / length(residuals_SararHetDurbT1A) # Estimate the residual variance
+loglik_SararHetDurbT1A <- sum(dnorm(residuals_SararHetDurbT1A, mean = 0, sd = sqrt(sige2_SararHetDurbT1A))) # Compute the log-likelihood
+num_params_SararHetDurbT1A <- length(coef(SararHetDurbT1A)) # Calculate the number of parameters in the model
+n <- length(residuals_SararHetDurbT1A)
+aic_SararHetDurbT1A <- -2 * loglik_SararHetDurbT1A + 2 * num_params_SararHetDurbT1A # Compute AIC
+bic_SararHetDurbT1A <- -2 * loglik_SararHetDurbT1A + num_params_SararHetDurbT1A * log(n) # Compute BIC
+aic_SararHetDurbT1A # Print AIC
+bic_SararHetDurbT1A  # Print BIC
+```
+
+
+```{r}
+# AIC and BIC for models SararHetDurbT1B
+residuals_SararHetDurbT1B <- residuals(SararHetDurbT1B) # Compute the residuals
+sige2_SararHetDurbT1B <- sum(residuals_SararHetDurbT1B^2) / length(residuals_SararHetDurbT1B) # Estimate the residual variance
+loglik_SararHetDurbT1B <- sum(dnorm(residuals_SararHetDurbT1B, mean = 0, sd = sqrt(sige2_SararHetDurbT1B))) # Compute the log-likelihood
+num_params_SararHetDurbT1B <- length(coef(SararHetDurbT1B)) # Calculate the number of parameters in the model
+n <- length(residuals_SararHetDurbT1B)
+aic_SararHetDurbT1B <- -2 * loglik_SararHetDurbT1B + 2 * num_params_SararHetDurbT1B # Compute AIC
+bic_SararHetDurbT1B <- -2 * loglik_SararHetDurbT1B + num_params_SararHetDurbT1B * log(n) # Compute BIC
+aic_SararHetDurbT1B # Print AIC
+bic_SararHetDurbT1B  # Print BIC
+```
+
+```{r}
+# AIC and BIC for models SararHetDurbT2A
+residuals_SararHetDurbT2A <- residuals(SararHetDurbT2A) # Compute the residuals
+sige2_SararHetDurbT2A <- sum(residuals_SararHetDurbT2A^2) / length(residuals_SararHetDurbT2A) # Estimate the residual variance
+loglik_SararHetDurbT2A <- sum(dnorm(residuals_SararHetDurbT2A, mean = 0, sd = sqrt(sige2_SararHetDurbT2A))) # Compute the log-likelihood
+num_params_SararHetDurbT2A <- length(coef(SararHetDurbT2A)) # Calculate the number of parameters in the model
+n <- length(residuals_SararHetDurbT2A)
+aic_SararHetDurbT2A <- -2 * loglik_SararHetDurbT2A + 2 * num_params_SararHetDurbT2A # Compute AIC
+bic_SararHetDurbT2A <- -2 * loglik_SararHetDurbT2A + num_params_SararHetDurbT2A * log(n) # Compute BIC
+aic_SararHetDurbT2A # Print AIC
+bic_SararHetDurbT2A  # Print BIC
+```
+
+```{r}
+# AIC and BIC for models SararHetDurbT2B
+residuals_SararHetDurbT2B <- residuals(SararHetDurbT2B) # Compute the residuals
+sige2_SararHetDurbT2B <- sum(residuals_SararHetDurbT2B^2) / length(residuals_SararHetDurbT2B) # Estimate the residual variance
+loglik_SararHetDurbT2B <- sum(dnorm(residuals_SararHetDurbT2B, mean = 0, sd = sqrt(sige2_SararHetDurbT2B))) # Compute the log-likelihood
+num_params_SararHetDurbT2B <- length(coef(SararHetDurbT2B)) # Calculate the number of parameters in the model
+n <- length(residuals_SararHetDurbT2B)
+aic_SararHetDurbT2B <- -2 * loglik_SararHetDurbT2B + 2 * num_params_SararHetDurbT2B # Compute AIC
+bic_SararHetDurbT2B <- -2 * loglik_SararHetDurbT2B + num_params_SararHetDurbT2B * log(n) # Compute BIC
+aic_SararHetDurbT2B # Print AIC
+bic_SararHetDurbT2B  # Print BIC
+```
